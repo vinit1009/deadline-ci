@@ -2,6 +2,8 @@
 
     deadline check trace.txt --budgets deadlines.toml [--junit report.xml] [--summary summary.md] [--svg worst.svg]
     deadline threads trace.txt           # list processes and threads seen, to write selectors
+    deadline baseline good-run.txt --budgets deadlines.toml [--margin 0.25] [--write deadlines.toml]
+                                         # propose limits from a healthy run
 
 Exit status: 0 when every budget is met, 1 when any is missed, 2 on bad input.
 """
@@ -12,6 +14,7 @@ import os
 import sys
 
 from . import __version__
+from .baseline import LIMIT_KEY, propose, rewrite
 from .budgets import check, load, _threads
 from .report import junit, markdown, svg_timeline
 from .trace import parse_file
@@ -64,6 +67,27 @@ def cmd_threads(a) -> int:
     return 0
 
 
+def cmd_baseline(a) -> int:
+    trace = parse_file(a.trace, a.cycles_per_sec)
+    cfg = load(a.budgets)
+    rows = propose(trace, cfg, a.margin)
+    for b, r, suggested in rows:
+        key = LIMIT_KEY[b["type"]]
+        if suggested is None:
+            print(f"SKIP  {b['name']}: no samples in this trace; check its thread or process selector")
+            continue
+        fmt = (lambda v: f"{v * 100:.1f}%") if key == "max_share" else (lambda v: f"{v:.1f} us")
+        label = "max" if r.percentile >= 100 else f"p{r.percentile:g}"
+        now = f" (now {b[key]:g})" if key in b else ""
+        print(f"{b['name']}: {label} {fmt(r.observed)} over {r.samples} samples -> {key} = {suggested:g}{now}")
+    if a.write:
+        with open(a.budgets, encoding="utf-8") as f:
+            text = f.read()
+        _write(a.write, rewrite(text, rows))
+        print(f"Wrote {a.write} with a {a.margin:.0%} margin over this run.")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="deadline", description="Turn a QNX kernel trace into pass/fail timing tests.")
     p.add_argument("--version", action="version", version=f"deadline {__version__}")
@@ -81,6 +105,13 @@ def main(argv=None) -> int:
     t.add_argument("trace")
     t.add_argument("--cycles-per-sec", type=float)
     t.set_defaults(func=cmd_threads)
+    b = sub.add_parser("baseline", help="propose budget limits from a trace of a run you know is healthy")
+    b.add_argument("trace")
+    b.add_argument("--budgets", default="deadlines.toml")
+    b.add_argument("--margin", type=float, default=0.25, help="headroom over the measured value (default 0.25 = 25%%)")
+    b.add_argument("--write", metavar="PATH", help="write the budgets file with the proposed limits (may be the same file)")
+    b.add_argument("--cycles-per-sec", type=float)
+    b.set_defaults(func=cmd_baseline)
     a = p.parse_args(argv)
     try:
         return a.func(a)

@@ -1,0 +1,42 @@
+name: tests
+on:
+  push:
+  pull_request:
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: PYTHONPATH=.:tests python -m unittest discover -s tests
+  action:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: PYTHONPATH=tests python3 tests/make_examples.py demo
+      - name: A healthy run passes
+        uses: ./
+        with:
+          trace: demo/healthy.txt
+          budgets: demo/deadlines.toml
+          junit: demo/healthy.xml
+          svg: demo/healthy.svg
+      - name: A regressed run fails
+        id: regressed
+        continue-on-error: true
+        uses: ./
+        with:
+          trace: demo/regressed.txt
+          budgets: demo/deadlines.toml
+          junit: demo/regressed.xml
+          svg: demo/regressed.svg
+      - name: The regression was caught
+        if: steps.regressed.outputs.passed != 'false'
+        run: exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deadline-reports
+          path: demo/
