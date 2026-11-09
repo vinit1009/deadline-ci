@@ -6,15 +6,15 @@ jobs:
   unit:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: PYTHONPATH=.:tests python -m unittest discover -s tests
   action:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: PYTHONPATH=tests python3 tests/make_examples.py demo
       - name: A healthy run passes
         uses: ./
@@ -54,7 +54,7 @@ jobs:
       - name: The real regression was caught
         if: steps.qnx_regressed.outputs.passed != 'false'
         run: exit 1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: deadline-reports
