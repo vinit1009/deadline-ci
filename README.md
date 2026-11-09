@@ -15,7 +15,7 @@ Status: work in progress for the QNX Global Hackathon 2026 (category Developer T
 
 `scenario/` holds a small real-time system to test against, built with SDP 8.0's `qcc` for x86_64:
 
-- `deadline-demo`: a 1 kHz control loop (thread 2, priority 30) blocked in `MsgReceivePulse()` until a periodic timer pulse arrives, plus a message server (thread 3, priority 20). It sets a 100 us clock tick, because a 1 ms timer on the default 1 ms tick fires every second tick (Deadline CI's jitter budget is how that showed up).
+- `deadline-demo`: a 1 kHz control loop (thread 2, priority 30) blocked in `MsgReceivePulse()` until a periodic timer pulse arrives, plus a message server (thread 3, priority 20).
 - `deadline-client`: sends a request with `MsgSend()` every 5 ms (thread 1, priority 25).
 - `ai-worker`: a stand-in for a best-effort inference job that computes for part of every 10 ms.
 
@@ -32,7 +32,7 @@ deadline check ../qnx-image/traces/healthy.txt   --budgets scenario/deadlines.to
 deadline check ../qnx-image/traces/regressed.txt --budgets scenario/deadlines.toml   # fails, with the worst violation drawn
 ```
 
-The image prints each decoded trace on the serial console between markers, so no networking is needed. QEMU runs with `-icount shift=0,sleep=off`, which drives the guest's timers and cycle counter from one virtual clock: runs are deterministic and free of host noise, and the numbers are emulated time rather than wall-clock time. The healthy run passes every budget; the regressed run fails the wake-up latency, period jitter and CPU budgets, and the SVG shows the control loop ready but not running while the worker holds the CPU.
+The image prints each decoded trace on the serial console between markers, so no networking is needed. QEMU runs with `-icount shift=0,sleep=off`, which drives the guest's timers and cycle counter from one virtual clock: runs are deterministic and free of host noise, and the numbers are emulated time rather than wall-clock time. Without it, plain emulation lets the two clocks drift apart; the jitter budget flagged a 1 ms timer showing up as 1.3 and 2.6 ms intervals, which is exactly the kind of timing surprise Deadline CI is meant to catch. The healthy run passes every budget; the regressed run fails the wake-up latency, period jitter and CPU budgets, and the SVG shows the control loop ready but not running while the worker holds the CPU.
 
 **Licensing note.** QNX SDP's non-commercial licence covers a developer's own machines and virtual development environments, not build servers or cloud runners, so this repository's CI checks synthetic traces only and contains no QNX binaries. To run Deadline CI on real traces in CI, use a runner on a machine your QNX licence covers.
 

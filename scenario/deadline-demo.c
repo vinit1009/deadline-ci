@@ -9,7 +9,6 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <time.h>
 #include <unistd.h>
 #include <sys/dispatch.h>
@@ -78,16 +77,8 @@ static void *server(void *unused)
     return NULL;
 }
 
-int main(int argc, char **argv)
+int main(void)
 {
-    /* A 1 ms timer on the default 1 ms clock tick fires on the tick after it expires, so the loop runs
-     * at about 2 ms. A 100 us tick keeps it at 1 ms; pass --default-tick to see the bug. */
-    if (argc < 2 || strcmp(argv[1], "--default-tick") != 0) {
-        struct _clockperiod const fine = { .nsec = 100000, .fract = 0 };
-        if (ClockPeriod(CLOCK_REALTIME, &fine, NULL, 0) == -1) {
-            perror("ClockPeriod");
-        }
-    }
     pthread_t loop, srv;
     if (start_thread(&loop, LOOP_PRIORITY, control_loop, NULL) != 0 ||
         start_thread(&srv, SERVER_PRIORITY, server, NULL) != 0) {
