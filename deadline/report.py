@@ -135,7 +135,8 @@ def svg_timeline(trace: Trace, result: Result, focus: set, max_lanes: int = 8) -
     ya = H - 14
     for k in range(6):
         t = t0 + (t1 - t0) * k / 5
-        parts.append(f'<text x="{x(t):.1f}" y="{ya}" fill="#6b7489" text-anchor="middle">{t / 1000:.3f} ms</text>')
+        anchor = "start" if k == 0 else ("end" if k == 5 else "middle")    # keep the end labels inside the image
+        parts.append(f'<text x="{x(t):.1f}" y="{ya}" fill="#6b7489" text-anchor="{anchor}">{t / 1000:.3f} ms</text>')
     legend = [("running", COLORS["THRUNNING"]), ("ready", COLORS["THREADY"]), ("blocked", BLOCKED_COLOR)]
     for i, (n, c) in enumerate(legend):
         parts.append(f'<rect x="{W - 300 + i * 95}" y="14" width="12" height="12" fill="{c}"/><text x="{W - 284 + i * 95}" y="24" fill="#44506b">{n}</text>')
