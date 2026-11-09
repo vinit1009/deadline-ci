@@ -2,7 +2,7 @@
 # Boots the image in QEMU, lets the scenario run (healthy, then regressed), and saves both traces.
 #   target/run-qemu.sh [image-dir] [traces-dir]
 # QEMU runs with -icount shift=0,sleep=off: the guest's clock and its cycle counter come from one
-# virtual clock, so timing is deterministic and free of host noise (emulated time, not wall time).
+# virtual clock, so timing is repeatable (emulated time, not wall time).
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 IMAGE=${1:-$REPO/../qnx-image}

@@ -34,7 +34,7 @@ deadline check ../qnx-image/traces/healthy.txt   --budgets scenario/deadlines.to
 deadline check ../qnx-image/traces/regressed.txt --budgets scenario/deadlines.toml   # fails, with the worst violation drawn
 ```
 
-The image prints each decoded trace on the serial console between markers, so no networking is needed. QEMU runs with `-icount shift=0,sleep=off`, which drives the guest's timers and cycle counter from one virtual clock: runs are deterministic and free of host noise, and the numbers are emulated time rather than wall-clock time. Without it, plain emulation lets the two clocks drift apart; the jitter budget flagged a 1 ms timer showing up as 1.3 and 2.6 ms intervals, which is exactly the kind of timing surprise Deadline CI is meant to catch.
+The image prints each decoded trace on the serial console between markers, so no networking is needed. QEMU runs with `-icount shift=0,sleep=off`, which drives the guest's timers and cycle counter from one virtual clock: the clock interrupt arrives every 1,000 us to within 0.2 us, two boots of the same image agree to within half a microsecond at p99, and the numbers are emulated time rather than wall-clock time. Without it, plain emulation lets the two clocks drift apart; the jitter budget flagged a 1 ms timer showing up as 1.3 and 2.6 ms intervals, which is exactly the kind of timing surprise Deadline CI is meant to catch.
 
 Results from the traces in `examples/qnx-qemu/` (measurements of the demo programs under emulation, not QNX benchmarks):
 
@@ -43,7 +43,7 @@ Results from the traces in `examples/qnx-qemu/` (measurements of the demo progra
 | healthy | 1.6 us | 7.6 us | 86.7 us | 2.5 us | 26.2% | all 5 budgets pass, exit 0 |
 | regressed | 9,005.7 us | 9,010.6 us | 86.7 us | 9,004.9 us | 81.7% | 4 budgets fail, exit 1 |
 
-In the healthy run the loop wakes 2,001 times in 2 seconds, every period exactly 1,000 us. In the regressed run the worker, now above the loop, keeps it waiting about 9 ms at a time. The chain budget follows each wake-up from the clock interrupt to the loop running and splits the worst one into its kernel stages, so the failure says where to look:
+In the healthy run the loop wakes 2,001 times in 2 seconds, and its period never strays more than 4.5 us from 1,000 us. In the regressed run the worker, now above the loop, keeps it waiting about 9 ms at a time. The chain budget follows each wake-up from the clock interrupt to the loop running and splits the worst one into its kernel stages, so the failure says where to look:
 
 ```
 FAIL  Clock interrupt to control loop running within 200 us: p99 9010.6 us > 200.0 us over 363 samples (worst 9010.6 us at 1067.608 ms); worst sample: interrupt -> timer fired 3.5 us, timer fired -> pulse sent 0.9 us, pulse sent -> ready 0.5 us, ready -> running 9005.7 us

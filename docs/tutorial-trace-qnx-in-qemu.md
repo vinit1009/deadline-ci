@@ -8,7 +8,7 @@ You will:
 2. install SDP 8.0 from the command line,
 3. build a small real-time program with `qcc`,
 4. build a bootable QEMU image with `mkqnximage` that runs your program and `tracelogger` on boot,
-5. boot it with deterministic timing and pull the decoded trace out over the serial console,
+5. boot it with repeatable timing and pull the decoded trace out over the serial console,
 6. check the trace against timing budgets, locally and in CI.
 
 You need a free QNX SDP 8.0 non-commercial licence (https://www.qnx.com/products/everywhere/), Docker, and QEMU.
@@ -104,7 +104,7 @@ mkqnximage --type=qemu --arch=x86_64 --cpu=1 --ram=1G --noprompt --force --build
 
 Why x86_64 on an ARM Mac: the aarch64 QEMU "virt" start-up code is not in SDP 8.0's base packages, while the x86_64 start-up is.
 
-## 5. Boot with deterministic time and collect the trace
+## 5. Boot with repeatable timing and collect the trace
 
 ```bash
 qemu-system-x86_64 -display none -monitor none -serial file:serial.log \
@@ -114,7 +114,7 @@ qemu-system-x86_64 -display none -monitor none -serial file:serial.log \
 awk '/===DEADLINE-TRACE-BEGIN healthy===/{f=1;next}/===DEADLINE-TRACE-END healthy===/{f=0}f' serial.log > healthy.txt
 ```
 
-`-icount shift=0,sleep=off` is the important flag. Without it, x86_64 emulated on ARM lets the guest's timer interrupts and its cycle counter drift apart: a 1 ms periodic timer showed up as a mix of 1.3 and 2.6 ms intervals. With instruction counting, both come from one virtual clock, so every period measures exactly 1,000 us and runs repeat exactly. The numbers are emulated time, which is what you want for regression tests: no host noise, only the effects of your own changes.
+`-icount shift=0,sleep=off` is the important flag. Without it, x86_64 emulated on ARM lets the guest's timer interrupts and its cycle counter drift apart: a 1 ms periodic timer showed up as a mix of 1.3 and 2.6 ms intervals. With instruction counting, both come from one virtual clock: the clock interrupt arrives every 1,000 us to within 0.2 us, and two boots of the same image agree to within half a microsecond at p99. The numbers are emulated time, which suits regression tests: what changes from one run to the next is mostly what you changed.
 
 No networking is needed: the trace travels over the serial console. `target/run-qemu.sh` in this repository does all of step 5.
 
