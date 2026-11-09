@@ -4,8 +4,11 @@
     deadline threads trace.txt           # list processes and threads seen, to write selectors
     deadline baseline good-run.txt --budgets deadlines.toml [--margin 0.25] [--write deadlines.toml]
                                          # propose limits from a healthy run
+    deadline compare base.txt head.txt --budgets deadlines.toml [--max-increase 0.25] [--summary compare.md]
+                                         # budget by budget, the base run against the head run
 
-Exit status: 0 when every budget is met, 1 when any is missed, 2 on bad input.
+Exit status: 0 when every budget is met, 1 when any is missed, 2 on bad input. For compare:
+1 when a budget that passed on the base misses on the head (or got slower than --max-increase).
 """
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ import sys
 from . import __version__
 from .baseline import LIMIT_KEY, propose, rewrite
 from .budgets import check, load, _threads
+from .compare import compare, markdown as compare_markdown, regressed, text as compare_text
 from .report import junit, markdown, svg_timeline
 from .trace import parse_file
 
@@ -88,6 +92,21 @@ def cmd_baseline(a) -> int:
     return 0
 
 
+def cmd_compare(a) -> int:
+    cfg = load(a.budgets)
+    base, head = parse_file(a.base, a.cycles_per_sec), parse_file(a.head, a.cycles_per_sec)
+    rows = compare(base, head, cfg, a.max_increase)
+    print(compare_text(rows))
+    summary = compare_markdown(rows, os.path.basename(a.base), os.path.basename(a.head))
+    if a.summary:
+        _write(a.summary, summary)
+    step = os.environ.get("GITHUB_STEP_SUMMARY")
+    if step and not a.no_step_summary:
+        with open(step, "a", encoding="utf-8") as f:
+            f.write(summary)
+    return 1 if regressed(rows) else 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="deadline", description="Turn a QNX kernel trace into pass/fail timing tests.")
     p.add_argument("--version", action="version", version=f"deadline {__version__}")
@@ -112,6 +131,15 @@ def main(argv=None) -> int:
     b.add_argument("--write", metavar="PATH", help="write the budgets file with the proposed limits (may be the same file)")
     b.add_argument("--cycles-per-sec", type=float)
     b.set_defaults(func=cmd_baseline)
+    k = sub.add_parser("compare", help="compare two runs budget by budget (for example main against a pull request)")
+    k.add_argument("base", help="trace of the reference run")
+    k.add_argument("head", help="trace of the run under review")
+    k.add_argument("--budgets", default="deadlines.toml")
+    k.add_argument("--max-increase", type=float, help="also fail when a passing budget gets worse by more than this share (0.25 = 25%%)")
+    k.add_argument("--summary", help="write a Markdown table (for a pull request comment) here")
+    k.add_argument("--cycles-per-sec", type=float)
+    k.add_argument("--no-step-summary", action="store_true", help="do not append to $GITHUB_STEP_SUMMARY")
+    k.set_defaults(func=cmd_compare)
     a = p.parse_args(argv)
     try:
         return a.func(a)

@@ -1,5 +1,5 @@
 name: Deadline CI
-description: Fail the build when a QNX kernel trace misses a declared timing budget (latency, round trip, jitter, CPU share).
+description: Fail the build when a QNX kernel trace misses a declared timing budget (latency, interrupt chain, round trip, jitter, CPU share).
 branding:
   icon: clock
   color: red
@@ -16,6 +16,9 @@ inputs:
   svg:
     description: Where to write the SVG timeline of the worst violation.
     default: deadline-worst.svg
+  compare-to:
+    description: Optional trace of a reference run (for example from main). When set, the job summary also gets a budget-by-budget comparison, and the step fails on a budget that passed there but misses here.
+    default: ""
   python-version:
     description: Python used to run the checker (3.11 or newer).
     default: "3.12"
@@ -40,9 +43,14 @@ runs:
         BUDGETS: ${{ inputs.budgets }}
         JUNIT: ${{ inputs.junit }}
         SVG: ${{ inputs.svg }}
+        BASE: ${{ inputs.compare-to }}
       run: |
         set +e
         deadline check "$TRACE" --budgets "$BUDGETS" --junit "$JUNIT" --svg "$SVG"
         code=$?
+        if [ -n "$BASE" ]; then
+          deadline compare "$BASE" "$TRACE" --budgets "$BUDGETS"
+          [ $? -ne 0 ] && code=1
+        fi
         if [ "$code" -eq 0 ]; then echo "passed=true" >> "$GITHUB_OUTPUT"; else echo "passed=false" >> "$GITHUB_OUTPUT"; fi
         exit "$code"

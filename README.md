@@ -102,6 +102,21 @@ Control loop period stays within 200 us of 1 ms: max 48.0 us over 499 samples ->
 Wrote deadlines.toml with a 25% margin over this run.
 ```
 
+## Comparing two runs
+
+`deadline compare` judges every budget on two traces, for example the main branch and a pull request, and fails only on what got worse: a budget that passed on the base and misses on the head is a new miss, and `--max-increase 0.25` also fails a budget that still passes but got more than 25% worse. The Markdown table (`--summary`, and the job summary in Actions) is made for a review comment, and for chain budgets it names the stage that grew:
+
+```
+$ deadline compare examples/qnx-qemu/healthy.txt.gz examples/qnx-qemu/regressed.txt.gz --budgets scenario/deadlines.toml
+NEW MISS      Control loop wakes up within 150 us of its 1 ms timer pulse: 1.6 us -> 9,005.7 us, +9,004.1 us (x5,773), limit 150.0 us
+NEW MISS      Clock interrupt to control loop running within 200 us: 7.6 us -> 9,010.6 us, +9,003.0 us (x1,187), limit 200.0 us; ready -> running +9,004.1 us at p99
+OK            Client request round trip under 400 us: 86.7 us -> 86.7 us, no change, limit 400.0 us
+NEW MISS      Control loop period stays within 200 us of 1 ms: 2.5 us -> 9,004.9 us, +9,002.4 us (x3,611), limit 200.0 us
+NEW MISS      AI worker uses at most 40% of the CPU: 26.2% -> 81.7%, +55.4 pts (+211%), limit 40.0%
+```
+
+In the GitHub Action, set `compare-to:` to the reference trace.
+
 ## GitHub Action
 
 ```yaml

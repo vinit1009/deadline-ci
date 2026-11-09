@@ -54,6 +54,21 @@ jobs:
       - name: The real regression was caught
         if: steps.qnx_regressed.outputs.passed != 'false'
         run: exit 1
+      - name: Compare the real runs (healthy as the base, regressed as the head)
+        id: qnx_compare
+        continue-on-error: true
+        uses: ./
+        with:
+          trace: examples/qnx-qemu/regressed.txt.gz
+          compare-to: examples/qnx-qemu/healthy.txt.gz
+          budgets: scenario/deadlines.toml
+          junit: demo/qnx-compare.xml
+          svg: demo/qnx-compare.svg
+      - name: The comparison reported the new misses
+        if: steps.qnx_compare.outcome != 'failure'
+        run: exit 1
+      - name: Comparing a run with itself finds nothing new
+        run: deadline compare examples/qnx-qemu/healthy.txt.gz examples/qnx-qemu/healthy.txt.gz --budgets scenario/deadlines.toml
       - uses: actions/upload-artifact@v7
         if: always()
         with:
