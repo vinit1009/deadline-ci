@@ -1,0 +1,35 @@
+# Timing budgets for the Deadline CI demo scenario (see README).
+# Thread selectors: { process = "<name>", tid = N } or { pid = N, tid = N }; run `deadline threads trace.txt` to see them.
+
+[[budget]]
+name = "Control loop wakes up within 150 us of its timer pulse"
+type = "latency"
+thread = { process = "deadline-demo", tid = 2 }
+from_state = "THRECEIVE"      # blocked in MsgReceive until the timer pulse arrives
+percentile = 99
+max_us = 150
+
+[[budget]]
+name = "Client request round trip under 400 us"
+type = "roundtrip"
+thread = { process = "deadline-client", tid = 1 }
+call = "MSG_SENDV"            # MsgSendv(): from the call to its return, including the server's work
+percentile = 99.9
+max_us = 400
+
+[[budget]]
+name = "Control loop period stays within 50 us of 1 ms"
+type = "jitter"
+thread = { process = "deadline-demo", tid = 2 }
+from_state = "THRECEIVE"
+period_us = 1000
+tolerance_us = 50
+percentile = 100
+
+[[budget]]
+name = "AI worker uses at most 40% of a CPU"
+type = "cpu"
+process = "ai-worker"
+window_ms = 100
+max_share = 0.40
+percentile = 100
