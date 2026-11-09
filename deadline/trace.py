@@ -120,5 +120,10 @@ def parse(lines: Iterable[str], cycles_per_sec: Optional[float] = None) -> Trace
 
 
 def parse_file(path: str, cycles_per_sec: Optional[float] = None) -> Trace:
+    """Reads traceprinter output; a .gz file is decompressed on the fly."""
+    if str(path).endswith(".gz"):
+        import gzip
+        with gzip.open(path, "rt", encoding="utf-8", errors="replace") as f:
+            return parse(f, cycles_per_sec)
     with open(path, encoding="utf-8", errors="replace") as f:
         return parse(f, cycles_per_sec)

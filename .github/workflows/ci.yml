@@ -35,6 +35,25 @@ jobs:
       - name: The regression was caught
         if: steps.regressed.outputs.passed != 'false'
         run: exit 1
+      - name: A real QNX OS 8.0 trace (healthy run) passes
+        uses: ./
+        with:
+          trace: examples/qnx-qemu/healthy.txt.gz
+          budgets: scenario/deadlines.toml
+          junit: demo/qnx-healthy.xml
+          svg: demo/qnx-healthy.svg
+      - name: A real QNX OS 8.0 trace (regressed run) fails
+        id: qnx_regressed
+        continue-on-error: true
+        uses: ./
+        with:
+          trace: examples/qnx-qemu/regressed.txt.gz
+          budgets: scenario/deadlines.toml
+          junit: demo/qnx-regressed.xml
+          svg: demo/qnx-regressed.svg
+      - name: The real regression was caught
+        if: steps.qnx_regressed.outputs.passed != 'false'
+        run: exit 1
       - uses: actions/upload-artifact@v4
         if: always()
         with:

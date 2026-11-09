@@ -9,7 +9,7 @@ $ deadline check trace.txt --budgets deadlines.toml --junit report.xml --svg wor
 FAIL  Control loop wakes up within 150 us of its timer pulse: p99 2300.0 us > 150.0 us over 59 samples (worst 2300.0 us at 40.000 ms)
 ```
 
-Status: work in progress for the QNX Global Hackathon 2026 (category Developer Tooling & Host Tools). The checker, budget baseline and GitHub Action are tested on synthetic traces in CI, and the demo scenario below builds for and runs on QNX OS 8.0 (x86_64, QEMU) with SDP 8.0.
+Status: work in progress for the QNX Global Hackathon 2026 (category Developer Tooling & Host Tools). The checker, budget baseline and GitHub Action are tested in CI on real QNX OS 8.0 traces and synthetic ones, and the demo scenario below builds for and runs on QNX OS 8.0 (x86_64, QEMU) with SDP 8.0.
 
 ## Demo on QNX OS 8.0 (QEMU)
 
@@ -32,9 +32,29 @@ deadline check ../qnx-image/traces/healthy.txt   --budgets scenario/deadlines.to
 deadline check ../qnx-image/traces/regressed.txt --budgets scenario/deadlines.toml   # fails, with the worst violation drawn
 ```
 
-The image prints each decoded trace on the serial console between markers, so no networking is needed. QEMU runs with `-icount shift=0,sleep=off`, which drives the guest's timers and cycle counter from one virtual clock: runs are deterministic and free of host noise, and the numbers are emulated time rather than wall-clock time. Without it, plain emulation lets the two clocks drift apart; the jitter budget flagged a 1 ms timer showing up as 1.3 and 2.6 ms intervals, which is exactly the kind of timing surprise Deadline CI is meant to catch. The healthy run passes every budget; the regressed run fails the wake-up latency, period jitter and CPU budgets, and the SVG shows the control loop ready but not running while the worker holds the CPU.
+The image prints each decoded trace on the serial console between markers, so no networking is needed. QEMU runs with `-icount shift=0,sleep=off`, which drives the guest's timers and cycle counter from one virtual clock: runs are deterministic and free of host noise, and the numbers are emulated time rather than wall-clock time. Without it, plain emulation lets the two clocks drift apart; the jitter budget flagged a 1 ms timer showing up as 1.3 and 2.6 ms intervals, which is exactly the kind of timing surprise Deadline CI is meant to catch.
 
-**Licensing note.** QNX SDP's non-commercial licence covers a developer's own machines and virtual development environments, not build servers or cloud runners, so this repository's CI checks synthetic traces only and contains no QNX binaries. To run Deadline CI on real traces in CI, use a runner on a machine your QNX licence covers.
+Results from the traces in `examples/qnx-qemu/` (measurements of the demo programs under emulation, not QNX benchmarks):
+
+| Run | Wake-up latency, p99 | Round trip, p99.9 | Period jitter, p99 | Worker CPU, max | Result |
+|---|---|---|---|---|---|
+| healthy | 1.6 us | 86.7 us | 2.5 us | 26.2% | all 4 budgets pass, exit 0 |
+| regressed | 9,005.7 us | 86.7 us | 9,004.9 us | 81.7% | 3 budgets fail, exit 1 |
+
+In the healthy run the loop wakes 2,001 times in 2 seconds, every period exactly 1,000 us. In the regressed run the worker, now above the loop, keeps it waiting about 9 ms at a time. The timeline of the worst violation shows the control loop ready (orange) but not running while the worker (green) holds the CPU:
+
+![Worst violation in the regressed run](docs/regressed-timeline.svg)
+
+You can check these traces on any machine, no QNX needed:
+
+```bash
+pip install .
+deadline check examples/qnx-qemu/regressed.txt.gz --budgets scenario/deadlines.toml --svg worst.svg
+```
+
+This repository's CI runs the GitHub Action on both real traces and on synthetic ones, and fails if a regression is not caught.
+
+**Licensing note.** QNX SDP's non-commercial licence covers a developer's own machines and virtual development environments, not build servers or cloud runners, so this repository's CI only checks trace files (two real ones captured on a developer machine, plus synthetic ones) and contains no QNX binaries. To run Deadline CI on real traces in CI, use a runner on a machine your QNX licence covers.
 
 ## Budgets
 

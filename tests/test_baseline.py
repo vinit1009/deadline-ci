@@ -73,3 +73,19 @@ class Baseline(unittest.TestCase):
             self.assertNotEqual(main(["check", trace, "--budgets", budgets, "--no-step-summary"]), 0)
             self.assertEqual(main(["baseline", trace, "--budgets", budgets, "--write", out]), 0)
             self.assertEqual(main(["check", trace, "--budgets", out, "--no-step-summary"]), 0)
+
+
+class RealTraces(unittest.TestCase):
+    """Traces captured from QNX OS 8.0 under QEMU (examples/qnx-qemu), checked with the demo budgets."""
+
+    def setUp(self):
+        self.root = os.path.join(os.path.dirname(__file__), "..")
+        self.budgets = os.path.join(self.root, "scenario", "deadlines.toml")
+
+    def test_healthy_run_passes_every_budget(self):
+        trace = os.path.join(self.root, "examples", "qnx-qemu", "healthy.txt.gz")
+        self.assertEqual(main(["check", trace, "--budgets", self.budgets, "--no-step-summary"]), 0)
+
+    def test_regressed_run_fails(self):
+        trace = os.path.join(self.root, "examples", "qnx-qemu", "regressed.txt.gz")
+        self.assertEqual(main(["check", trace, "--budgets", self.budgets, "--no-step-summary"]), 1)
