@@ -124,6 +124,80 @@ class Budgets(unittest.TestCase):
         self.assertAlmostEqual(r.observed, 2300, places=3)
 
 
+def timer_chain(gaps, pid=20, tid=2, period_us=1000.0, stray_irq_at=None):
+    """A control loop woken each period by the kernel chain seen on QNX 8.0: the clock interrupt,
+    the process timer firing, its pulse, then the thread ready and running. gaps = [(irq->timer,
+    timer->pulse, pulse->ready, ready->running)] in us, one tuple per period."""
+    t = Trace().proc(0, pid, "./deadline-demo").proc(0, 99, "./other")
+    t.th(1, 0, "THRECEIVE", pid, tid)
+    for i, (a, b, c, d) in enumerate(gaps):
+        t0 = period_us * (i + 1)
+        t.ev(t0, 0, "INTERRUPT", "INT_DELIVER", intr_id="0x80010000(2147549184)")
+        if stray_irq_at == i:
+            t.ev(t0 + a / 2, 0, "INTERRUPT", "INT_DELIVER", intr_id="0xe(14)")
+        t.ev(t0 + a - 0.2, 0, "SYSTEM", "TIMER", pid=99, tid=1, timer_id=-1)      # another process's timer
+        t.ev(t0 + a, 0, "SYSTEM", "TIMER", pid=pid, tid=0, timer_id=0, flags="0x00000011")
+        t.ev(t0 + a + b, 0, "COMM", "SND_PULSE_EXE", scoid="0x00010001", pid=pid)
+        t.th(t0 + a + b + c, 0, "THREADY", pid, tid)
+        t.th(t0 + a + b + c + d, 0, "THRUNNING", pid, tid)
+        t.th(t0 + a + b + c + d + 50, 0, "THRECEIVE", pid, tid)
+    return t
+
+
+def chain_budget(max_us=200, p=100, **extra):
+    return {"name": "irq to running", "type": "chain", "thread": {"process": "deadline-demo", "tid": 2}, "from_state": "THRECEIVE",
+            "stages": ["INTERRUPT:INT_DELIVER intr_id=0x80010000", "SYSTEM:TIMER", "COMM:SND_PULSE_EXE"], "max_us": max_us, "percentile": p, **extra}
+
+
+class Chains(unittest.TestCase):
+    def test_breaks_the_worst_wake_up_down_by_stage(self):
+        tr = parse(timer_chain([(3, 1, 0.5, 2)] * 9 + [(3, 1, 0.5, 900)]).text())
+        r = evaluate(tr, chain_budget())
+        self.assertFalse(r.passed)
+        self.assertEqual(r.samples, 10)
+        self.assertAlmostEqual(r.observed, 904.5, places=3)
+        self.assertEqual([b["stage"] for b in r.breakdown], ["interrupt -> timer fired", "timer fired -> pulse sent", "pulse sent -> ready", "ready -> running"])
+        self.assertEqual([round(b["worst"], 3) for b in r.breakdown], [3, 1, 0.5, 900])
+        self.assertAlmostEqual(r.breakdown[3]["p50"], 2, places=3)
+        self.assertIn("ready -> running 900.0 us", r.message)
+        self.assertAlmostEqual(r.worst["t_us"], 10_000, places=3)       # starts at the interrupt
+        self.assertTrue(evaluate(tr, chain_budget(p=90)).passed)
+
+    def test_wake_ups_without_the_chain_are_not_counted(self):
+        t = timer_chain([(3, 1, 0.5, 2)] * 3)
+        t.th(5000, 0, "THREADY", 20, 2).th(5001, 0, "THRUNNING", 20, 2).th(5050, 0, "THRECEIVE", 20, 2)   # woken by a message
+        r = evaluate(parse(t.text()), chain_budget())
+        self.assertEqual(r.samples, 3)
+        self.assertTrue(r.passed)
+
+    def test_stage_filters_pick_the_right_interrupt(self):
+        # The worst wake-up (period 1) has another interrupt halfway between the clock interrupt and the timer.
+        tr = parse(timer_chain([(4, 1, 0.5, 2), (4, 1, 0.5, 30), (4, 1, 0.5, 2)], stray_irq_at=1).text())
+        self.assertAlmostEqual(evaluate(tr, chain_budget()).breakdown[0]["worst"], 4, places=3)
+        loose = evaluate(tr, {**chain_budget(), "stages": ["INTERRUPT:INT_DELIVER", "SYSTEM:TIMER", "COMM:SND_PULSE_EXE"]})
+        self.assertAlmostEqual(loose.breakdown[0]["worst"], 2, places=3)     # without the filter, the nearer stray one is taken
+
+    def test_stages_too_far_apart_do_not_chain(self):
+        tr = parse(timer_chain([(3, 1, 0.5, 2)] * 3).text())
+        self.assertEqual(evaluate(tr, chain_budget(window_us=0.4)).samples, 0)
+
+    def test_a_malformed_stage_is_rejected(self):
+        with self.assertRaises(ValueError):
+            evaluate(parse(timer_chain([(3, 1, 0.5, 2)]).text()), {**chain_budget(), "stages": ["SYSTEM:TIMER pid"]})
+
+    def test_reports_show_where_the_time_went(self):
+        tr = parse(timer_chain([(3, 1, 0.5, 2)] * 9 + [(3, 1, 0.5, 900)]).text())
+        results = check(tr, {"budget": [chain_budget()]})
+        md = markdown(results, tr, "trace.txt")
+        self.assertIn("Where the time went: irq to running", md)
+        self.assertIn("| ready -> running | 2.0 us | 900.0 us | 900.0 us |", md)
+        case = ET.fromstring(junit(results, "trace.txt")).find(".//failure")
+        self.assertIn("pulse sent -> ready", case.text)
+        svg = svg_timeline(tr, results[0], {(20, 2)})
+        ET.fromstring(svg)
+        self.assertIn("Where the time went: interrupt -&gt; timer fired 3.0 us", svg)
+
+
 class Reports(unittest.TestCase):
     def setUp(self):
         self.trace = parse(control_loop([10] * 50 + [2300]).text())

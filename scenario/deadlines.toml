@@ -11,6 +11,17 @@ percentile = 99
 max_us = 150
 
 [[budget]]
+name = "Clock interrupt to control loop running within 200 us"
+type = "chain"
+thread = { process = "deadline-demo", tid = 2 }
+from_state = "THRECEIVE"
+# The kernel events that wake the loop each tick, in order: the clock interrupt, the loop's timer
+# firing, its pulse. A miss is reported stage by stage, down to ready -> running.
+stages = ["INTERRUPT:INT_DELIVER intr_id=0x80010000", "SYSTEM:TIMER", "COMM:SND_PULSE_EXE"]
+percentile = 99
+max_us = 200
+
+[[budget]]
 name = "Client request round trip under 400 us"
 type = "roundtrip"
 thread = { process = "deadline-client", tid = 1 }

@@ -38,12 +38,18 @@ The image prints each decoded trace on the serial console between markers, so no
 
 Results from the traces in `examples/qnx-qemu/` (measurements of the demo programs under emulation, not QNX benchmarks):
 
-| Run | Wake-up latency, p99 | Round trip, p99.9 | Period jitter, p99 | Worker CPU, max | Result |
-|---|---|---|---|---|---|
-| healthy | 1.6 us | 86.7 us | 2.5 us | 26.2% | all 4 budgets pass, exit 0 |
-| regressed | 9,005.7 us | 86.7 us | 9,004.9 us | 81.7% | 3 budgets fail, exit 1 |
+| Run | Wake-up latency, p99 | Clock interrupt to running, p99 | Round trip, p99.9 | Period jitter, p99 | Worker CPU, max | Result |
+|---|---|---|---|---|---|---|
+| healthy | 1.6 us | 7.6 us | 86.7 us | 2.5 us | 26.2% | all 5 budgets pass, exit 0 |
+| regressed | 9,005.7 us | 9,010.6 us | 86.7 us | 9,004.9 us | 81.7% | 4 budgets fail, exit 1 |
 
-In the healthy run the loop wakes 2,001 times in 2 seconds, every period exactly 1,000 us. In the regressed run the worker, now above the loop, keeps it waiting about 9 ms at a time. The timeline of the worst violation shows the control loop ready (orange) but not running while the worker (green) holds the CPU:
+In the healthy run the loop wakes 2,001 times in 2 seconds, every period exactly 1,000 us. In the regressed run the worker, now above the loop, keeps it waiting about 9 ms at a time. The chain budget follows each wake-up from the clock interrupt to the loop running and splits the worst one into its kernel stages, so the failure says where to look:
+
+```
+FAIL  Clock interrupt to control loop running within 200 us: p99 9010.6 us > 200.0 us over 363 samples (worst 9010.6 us at 1067.608 ms); worst sample: interrupt -> timer fired 3.5 us, timer fired -> pulse sent 0.9 us, pulse sent -> ready 0.5 us, ready -> running 9005.7 us
+```
+
+The kernel handled the tick and delivered the pulse within 5 us; the remaining 9 ms were spent ready but not running, so this is a scheduling problem, not an interrupt or message-passing one. The timeline of the worst violation shows the control loop ready (orange) but not running while the worker (green) holds the CPU:
 
 ![Worst violation in the regressed run](docs/regressed-timeline.svg)
 
@@ -66,8 +72,24 @@ This repository's CI runs the GitHub Action on both real traces and on synthetic
 | `roundtrip` | From a kernel call (for example `MSG_SENDV`) to its return, per thread | Client/server message round trip |
 | `jitter` | How far the time between a thread's wake-ups strays from its period | 1 kHz loop period stability |
 | `cpu` | Share of one CPU a process uses in each window | Keep a best-effort AI worker in its lane |
+| `chain` | From the first kernel event of a wake-up chain (for example the clock interrupt) through each stage to the thread running, reported stage by stage | Tell interrupt handling, pulse delivery and scheduling delays apart |
 
-Each budget passes when its percentile (default 99; 100 is the maximum) is within the limit. See [`examples/deadlines.toml`](examples/deadlines.toml).
+Each budget passes when its percentile (default 99; 100 is the maximum) is within the limit. See [`examples/deadlines.toml`](examples/deadlines.toml) and [`scenario/deadlines.toml`](scenario/deadlines.toml).
+
+A `chain` budget lists the trace events that lead to a wake-up, in order, as `CLASS:EVENT` with optional `key=value` filters on the event's arguments:
+
+```toml
+[[budget]]
+name = "Clock interrupt to control loop running within 200 us"
+type = "chain"
+thread = { process = "deadline-demo", tid = 2 }
+from_state = "THRECEIVE"
+stages = ["INTERRUPT:INT_DELIVER intr_id=0x80010000", "SYSTEM:TIMER", "COMM:SND_PULSE_EXE"]
+percentile = 99
+max_us = 200
+```
+
+For each wake-up of the thread, Deadline CI walks back from the moment it became ready to the latest event of each stage, newest first. Events that name a process (the timer and the pulse do) must name the thread's process, and each stage must come within `window_us` (default 1000) of the next. Wake-ups without the whole chain before them, such as a message instead of the timer pulse, are not counted. On QNX OS 8.0 an interrupt appears in the trace as `INTERRUPT:INT_DELIVER` with its `intr_id`; in the demo, `0x80010000` is the one that fires every millisecond. The job summary gets a "where the time went" table with p50, p99 and the worst sample for each stage.
 
 ## Setting limits from a healthy run
 

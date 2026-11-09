@@ -138,7 +138,37 @@ deadline check healthy.txt   --budgets deadlines.toml                           
 deadline check regressed.txt --budgets deadlines.toml --svg worst.svg --junit report.xml   # exit 1
 ```
 
-In the demo, moving the AI worker above the control loop's priority takes the loop's p99 wake-up latency from 1.6 us to about 9,000 us; three budgets fail, and `worst.svg` shows the loop sitting ready while the worker runs. In GitHub Actions:
+In the demo, moving the AI worker above the control loop's priority takes the loop's p99 wake-up latency from 1.6 us to about 9,000 us; four of the five budgets fail, and `worst.svg` shows the loop sitting ready while the worker runs.
+
+### Where did the time go?
+
+A late wake-up can come from interrupt handling, from the kernel's timer and pulse delivery, or from scheduling. The trace has an event for each step: in the healthy run, every tick of the loop looks like this (the pid is the demo's):
+
+```
+INTERRUPT :INT_DELIVER   intr_id:0x80010000(2147549184)
+SYSTEM    :TIMER         pid:364560 tid:0 timer_id:0 flags:0x00000011 ACTIVE TARGET_PROCESS
+COMM      :SND_PULSE_EXE scoid:0x00010001 pid:364560
+THREAD    :THREADY       pid:364560 tid:2
+THREAD    :THRUNNING     pid:364560 tid:2
+COMM      :REC_PULSE     scoid:0x00010001 pid:364560
+```
+
+A `chain` budget names those stages and measures from the first one to the thread running:
+
+```toml
+[[budget]]
+name = "Clock interrupt to control loop running within 200 us"
+type = "chain"
+thread = { process = "deadline-demo", tid = 2 }
+from_state = "THRECEIVE"
+stages = ["INTERRUPT:INT_DELIVER intr_id=0x80010000", "SYSTEM:TIMER", "COMM:SND_PULSE_EXE"]
+percentile = 99
+max_us = 200
+```
+
+The `intr_id=` filter matters: another interrupt between the clock interrupt and the timer would otherwise be taken as the start of the chain. On the regressed trace the budget fails and splits the worst wake-up into stages: 3.5 us from the interrupt to the timer firing, 0.9 us to the pulse, 0.5 us to ready, and 9,005.7 us from ready to running. The kernel did its part in about 5 us; the fix is the worker's priority, not the timer.
+
+In GitHub Actions:
 
 ```yaml
 - uses: vinit1009/deadline-ci@v0

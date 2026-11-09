@@ -5,10 +5,13 @@ Budget types:
   roundtrip  time from a kernel call (e.g. MSG_SENDV) to its return, for one thread
   jitter     how far the time between a thread's wake-ups strays from its nominal period
   cpu        share of one CPU used by a process in each window
+  chain      time from the first stage of a wake-up chain (e.g. the clock interrupt) to the thread running,
+             broken down by stage: interrupt -> timer fired -> pulse sent -> ready -> running
 Each budget passes when the chosen percentile (default 99; 100 means the maximum) is within its limit.
 """
 from __future__ import annotations
 
+import bisect
 import math
 import tomllib
 from dataclasses import dataclass, field
@@ -18,7 +21,9 @@ from .trace import Trace
 
 BLOCKED = {"THRECEIVE", "THREPLY", "THSEND", "THNANOSLEEP", "THSEM", "THCONDVAR", "THMUTEX", "THJOIN", "THINTR",
            "THSIGSUSPEND", "THSIGWAITINFO", "THWAITPAGE", "THNET_SEND", "THNET_REPLY", "THSTOPPED"}
-TYPES = {"latency", "roundtrip", "jitter", "cpu"}
+TYPES = {"latency", "roundtrip", "jitter", "cpu", "chain"}
+DEFAULT_CHAIN = ["INTERRUPT:INT_DELIVER", "SYSTEM:TIMER", "COMM:SND_PULSE_EXE"]
+STAGE_NAMES = {"INTERRUPT:INT_DELIVER": "interrupt", "INTERRUPT:INT_ENTR": "interrupt", "SYSTEM:TIMER": "timer fired", "COMM:SND_PULSE_EXE": "pulse sent", "COMM:SND_PULSE": "pulse sent"}
 
 
 @dataclass
@@ -34,6 +39,7 @@ class Result:
     stats: dict = field(default_factory=dict)
     worst: Optional[dict] = None        # {"t_us", "end_us", "value", "pid", "tid"} for the timeline
     message: str = ""
+    breakdown: list = field(default_factory=list)  # chain budgets: [{"stage", "p50", "p99", "worst"}]
 
 
 def load(path: str) -> dict:
@@ -47,7 +53,37 @@ def load(path: str) -> dict:
             raise ValueError(f"Budget {b.get('name')!r}: type must be one of {sorted(TYPES)}.")
         if "name" not in b:
             raise ValueError("Every budget needs a name.")
+        for st in b.get("stages", []) if b["type"] == "chain" else []:
+            _stage(str(st))     # raises on a malformed stage
     return cfg
+
+
+def _as_int(value) -> Optional[int]:
+    try:
+        return int(str(value), 0)
+    except (TypeError, ValueError):
+        return None
+
+
+def _stage(spec: str) -> tuple:
+    """'INTERRUPT:INT_DELIVER intr_id=0x80010000' -> ('INTERRUPT:INT_DELIVER', {'intr_id': '0x80010000'})."""
+    event, *rest = spec.split()
+    filters = {}
+    for item in rest:
+        key, sep, value = item.partition("=")
+        if not sep:
+            raise ValueError(f"Chain stage {spec!r}: filters look like key=value.")
+        filters[key] = value
+    return event.upper(), filters
+
+
+def _arg_is(actual, wanted: str) -> bool:
+    """traceprinter prints some numbers as 0x80010000(2147549184); compare numbers by value."""
+    if actual is None:
+        return False
+    actual = str(actual).split("(")[0]
+    a, w = _as_int(actual), _as_int(wanted)
+    return a == w if a is not None and w is not None else actual == wanted
 
 
 def percentile(values: list, p: float) -> float:
@@ -171,6 +207,36 @@ def evaluate(trace: Trace, budget: dict) -> Result:
             elif e.cls == "KER_EXIT" and (e.pid, e.tid) in pending:
                 start = pending.pop((e.pid, e.tid))
                 samples.append((e.t_us - start, {"t_us": start, "end_us": e.t_us, "pid": e.pid, "tid": e.tid}))
+    elif kind == "chain":
+        threads = _threads(trace, budget.get("thread", {}))
+        stages = [str(x) for x in budget.get("stages", DEFAULT_CHAIN)]
+        if not stages:
+            raise ValueError(f"Budget {budget['name']!r}: stages must list at least one CLASS:EVENT.")
+        window = float(budget.get("window_us", 1000))  # longest gap allowed between consecutive stages
+        pids = {pid for pid, _ in threads}
+        index = []
+        for st in stages:
+            event, filters = _stage(st)
+            cls, _, name = event.partition(":")
+            index.append([e.t_us for e in trace.events if e.cls == cls and e.name == name
+                          and (e.args.get("pid") is None or _as_int(e.args.get("pid")) in pids)
+                          and all(_arg_is(e.args.get(k), v) for k, v in filters.items())])
+        for woke, ran, pid, tid in _wakeups(trace, threads, budget.get("from_state")):
+            cur, marks = woke, []
+            for ts in reversed(index):
+                k = bisect.bisect_right(ts, cur) - 1
+                if k < 0 or cur - ts[k] > window:
+                    break
+                marks.append(ts[k])
+                cur = ts[k]
+            if len(marks) != len(stages):
+                continue  # this wake-up was not caused by the chain (e.g. a message, not a timer pulse)
+            marks.reverse()
+            points = marks + [woke, ran]
+            parts = [b - a for a, b in zip(points, points[1:])]
+            samples.append((ran - marks[0], {"t_us": marks[0], "end_us": ran, "pid": pid, "tid": tid, "parts": parts}))
+        labels = [STAGE_NAMES.get(_stage(x)[0], _stage(x)[0].split(":")[-1].lower()) for x in stages] + ["ready", "running"]
+        chain_labels = [f"{a} -> {b}" for a, b in zip(labels, labels[1:])]
     elif kind == "cpu":
         sel = budget.get("process")
         pids = set(trace.pids_named(str(sel))) if sel else set()
@@ -200,11 +266,19 @@ def evaluate(trace: Trace, budget: dict) -> Result:
     observed = percentile(values, p)
     worst_value, worst_ctx = max(samples, key=lambda s: s[0])
     passed = observed <= limit
+    breakdown = []
+    if kind == "chain":
+        for i, stage in enumerate(chain_labels):
+            vals = [ctx["parts"][i] for _, ctx in samples]
+            breakdown.append({"stage": stage, "p50": percentile(vals, 50), "p99": percentile(vals, 99), "worst": worst_ctx["parts"][i]})
     label = "max" if p >= 100 else f"p{p:g}"
     fmt = (lambda v: f"{v * 100:.1f}%") if unit == "share" else (lambda v: f"{v:.1f} us")
     message = f"{label} {fmt(observed)} {'<=' if passed else '>'} {fmt(limit)} over {len(values)} samples (worst {fmt(worst_value)} at {worst_ctx['t_us'] / 1000:.3f} ms)"
+    if breakdown:
+        message += "; worst sample: " + ", ".join(f"{b['stage']} {fmt(b['worst'])}" for b in breakdown)
+    worst = {k: v for k, v in worst_ctx.items() if k != "parts"}
     return Result(budget["name"], kind, passed, unit, limit, p, observed, len(values), _stats(values),
-                  {**worst_ctx, "value": worst_value}, message)
+                  {**worst, "value": worst_value}, message, breakdown)
 
 
 def check(trace: Trace, cfg: dict) -> list:

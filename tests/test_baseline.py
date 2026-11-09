@@ -4,9 +4,9 @@ import tomllib
 import unittest
 
 from deadline.baseline import nice_ceil, propose, rewrite
-from deadline.budgets import check
+from deadline.budgets import check, evaluate
 from deadline.cli import main
-from deadline.trace import parse
+from deadline.trace import parse, parse_file
 
 from synth import control_loop
 
@@ -89,3 +89,17 @@ class RealTraces(unittest.TestCase):
     def test_regressed_run_fails(self):
         trace = os.path.join(self.root, "examples", "qnx-qemu", "regressed.txt.gz")
         self.assertEqual(main(["check", trace, "--budgets", self.budgets, "--no-step-summary"]), 1)
+
+    def test_the_chain_puts_the_regressed_delay_in_scheduling(self):
+        cfg = tomllib.load(open(self.budgets, "rb"))
+        chain = next(b for b in cfg["budget"] if b["type"] == "chain")
+        results = {}
+        for run in ("healthy", "regressed"):
+            tr = parse_file(os.path.join(self.root, "examples", "qnx-qemu", f"{run}.txt.gz"))
+            results[run] = evaluate(tr, chain)
+        self.assertTrue(results["healthy"].passed)
+        bad = results["regressed"]
+        self.assertFalse(bad.passed)
+        stages = {b["stage"]: b["worst"] for b in bad.breakdown}
+        self.assertGreater(stages["ready -> running"], 8000)        # the loop sat ready while the worker ran
+        self.assertLess(sum(v for k, v in stages.items() if k != "ready -> running"), 20)

@@ -11,7 +11,7 @@ import re
 from .budgets import Result, evaluate
 from .trace import Trace
 
-LIMIT_KEY = {"latency": "max_us", "roundtrip": "max_us", "jitter": "tolerance_us", "cpu": "max_share"}
+LIMIT_KEY = {"latency": "max_us", "roundtrip": "max_us", "jitter": "tolerance_us", "cpu": "max_share", "chain": "max_us"}
 
 
 def nice_ceil(value: float) -> float:
