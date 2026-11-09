@@ -13,6 +13,8 @@ Status: work in progress for the QNX Global Hackathon 2026 (category Developer T
 
 ## Demo on QNX OS 8.0 (QEMU)
 
+Step by step, including running SDP 8.0 on an Apple Silicon Mac: [docs/tutorial-trace-qnx-in-qemu.md](docs/tutorial-trace-qnx-in-qemu.md).
+
 `scenario/` holds a small real-time system to test against, built with SDP 8.0's `qcc` for x86_64:
 
 - `deadline-demo`: a 1 kHz control loop (thread 2, priority 30) blocked in `MsgReceivePulse()` until a periodic timer pulse arrives, plus a message server (thread 3, priority 20).
