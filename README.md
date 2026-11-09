@@ -9,11 +9,11 @@ $ deadline check trace.txt --budgets deadlines.toml --junit report.xml --svg wor
 FAIL  Control loop wakes up within 150 us of its timer pulse: p99 2300.0 us > 150.0 us over 59 samples (worst 2300.0 us at 40.000 ms)
 ```
 
-Status: work in progress for the QNX Global Hackathon 2026 (category Developer Tooling & Host Tools). The checker, budget baseline and GitHub Action are tested in CI on real QNX OS 8.0 traces and synthetic ones, and the demo scenario below builds for and runs on QNX OS 8.0 (x86_64, QEMU) with SDP 8.0.
+Built for the QNX Global Hackathon 2026 (category Developer Tooling & Host Tools). The checker, budget baseline and GitHub Action are tested in CI on real QNX OS 8.0 traces and synthetic ones, and the demo scenario below builds for and runs on QNX OS 8.0 (x86_64, QEMU) with SDP 8.0.
 
 ## Demo on QNX OS 8.0 (QEMU)
 
-Step by step, including running SDP 8.0 on an Apple Silicon Mac: [docs/tutorial-trace-qnx-in-qemu.md](docs/tutorial-trace-qnx-in-qemu.md).
+**Codelab:** [trace a QNX OS 8.0 program in QEMU and turn its timing into a CI test](docs/tutorial-trace-qnx-in-qemu.md), from an empty machine to a failing test, with the expected output at every step (including SDP 8.0 on an Apple Silicon Mac). Its step 0 takes five minutes and needs no QNX: it runs the checker on the two traces recorded on QNX OS 8.0 in `examples/qnx-qemu/`.
 
 `scenario/` holds a small real-time system to test against, built with SDP 8.0's `qcc` for x86_64:
 
