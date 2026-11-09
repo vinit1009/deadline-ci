@@ -1,7 +1,10 @@
-__pycache__/
-*.pyc
 *.egg-info/
+*.kev
+*.pyc
+.DS_Store
+__pycache__/
 build/
 dist/
 out/
-.DS_Store
+scenario/build/
+traces/

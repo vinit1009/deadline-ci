@@ -1,0 +1,2 @@
+# Run the Deadline CI demo once the system is up and print both traces to the console.
+/system/deadline/autorun.sh &

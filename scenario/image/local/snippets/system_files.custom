@@ -1,0 +1,8 @@
+# Added to the system partition (/system) by mkqnximage: the tracing tools and the demo scenario.
+bin/tracelogger=usr/sbin/tracelogger
+bin/traceprinter=usr/bin/traceprinter
+[perms=755] deadline/deadline-demo=/work/deadline-ci/scenario/build/x86_64/deadline-demo
+[perms=755] deadline/deadline-client=/work/deadline-ci/scenario/build/x86_64/deadline-client
+[perms=755] deadline/ai-worker=/work/deadline-ci/scenario/build/x86_64/ai-worker
+[perms=755] deadline/run-scenario.sh=/work/deadline-ci/scenario/run-scenario.sh
+[perms=755] deadline/autorun.sh=/work/deadline-ci/scenario/autorun.sh
